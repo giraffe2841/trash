@@ -1,36 +1,115 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 분리수거 트럭 최적 경로 시스템
 
-## Getting Started
+매력도(Attractiveness) 기반 Greedy 알고리즘을 활용해 분리수거 트럭의 최적 수거 동선을 시각적으로 탐색하는 웹 애플리케이션입니다.
 
-First, run the development server:
+## 실행 방법
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+브라우저에서 [http://localhost:3000](http://localhost:3000) 접속
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 핵심 알고리즘 설명
 
-## Learn More
+### 매력도 함수 U(t)
 
-To learn more about Next.js, take a look at the following resources:
+각 쓰레기통의 **매력도(Attractiveness)** 를 계산하여 방문 우선순위를 결정합니다.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+F_pull = α × S(t) / r²    // 포화도 기반 유인력
+F_push = β × P(t)          // 혼잡도 기반 반발력
+U(t)   = F_pull - F_push   // 최종 매력도
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| 변수 | 설명 |
+|------|------|
+| `S(t)` | 쓰레기통 포화도 (0~100%). 높을수록 먼저 수거 |
+| `r` | 트럭 현재 위치 → 해당 쓰레기통까지의 유클리드 거리 |
+| `P(t)` | 해당 위치의 교통/유동인구 혼잡도 (0~1). 높을수록 기피 |
+| `α` | 유인력 가중치 (슬라이더 조절) |
+| `β` | 반발력 가중치 (슬라이더 조절) |
 
-## Deploy on Vercel
+### Greedy 탐색 방식
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. 현재 트럭 위치에서 모든 미방문 쓰레기통의 `U(t)` 계산
+2. `U(t)` 가 가장 높은 쓰레기통으로 이동
+3. 수거 후 `S(t) = 0` 리셋, 다음 목적지 재계산
+4. 모든 쓰레기통을 방문할 때까지 반복
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+> **주의**: Greedy 방식은 전역 최적해를 보장하지 않습니다. 매력도 공식이 단순 거리 최소화 이상의 의미론적 우선순위를 부여합니다.
+
+---
+
+## α, β 파라미터 튜닝 가이드
+
+### α (유인력 가중치) — 포화도 중시 정도
+
+| α 값 | 동작 | 적합한 상황 |
+|------|------|------------|
+| 낮음 (0~1) | 거리 우선, 가까운 통 먼저 | 포화도 차이가 작을 때 |
+| 중간 (1~3) | 포화도와 거리 균형 | 일반적인 운용 |
+| 높음 (3~5) | 가득 찬 통을 먼 거리도 마다않고 수거 | 넘침 방지가 최우선일 때 |
+
+### β (반발력 가중치) — 혼잡 회피 정도
+
+| β 값 | 동작 | 적합한 상황 |
+|------|------|------------|
+| 낮음 (0~1) | 혼잡 지역도 진입 | 야간 수거, 유동인구 적을 때 |
+| 중간 (1~3) | 혼잡도 어느 정도 회피 | 일반 운용 |
+| 높음 (3~5) | 혼잡 지역 강하게 기피 | 출퇴근 러시아워, 이벤트 시 |
+
+### 추천 설정 조합
+
+```
+야간 수거:  α=2.0, β=0.3  → 혼잡 무시, 포화도 기반 효율 최대화
+주간 일반:  α=1.5, β=1.0  → 균형
+러시아워:   α=1.0, β=3.0  → 혼잡 회피 최우선
+긴급 수거:  α=4.0, β=0.5  → 가득 찬 통 무조건 우선
+```
+
+---
+
+## 실제 적용 시나리오
+
+### 시나리오 1: 주거 단지 조식 수거 (07:00~09:00)
+
+- 주거 단지 쓰레기통은 아침에 S(t)가 높음
+- 주간 유동인구가 낮은 시간대 → P(t) 낮음
+- **권장**: α=2.0, β=0.5
+- 결과: 포화도 높은 통 우선 수거, 경로 단축
+
+### 시나리오 2: 상업지구 점심시간 (11:30~13:30)
+
+- 상업지구 P(t) 급증
+- 식당·카페 근처 쓰레기통 S(t) 높음
+- **권장**: α=1.5, β=2.5
+- 결과: 혼잡 지역 일부 우회, 가장 급한 통만 선택적 방문
+
+### 시나리오 3: 축제/행사 지역 이벤트 수거
+
+- 특정 구역 P(t) = 0.9~1.0 (극도로 혼잡)
+- 동시에 S(t) = 90~100% (쓰레기 폭증)
+- **권장**: α=3.0, β=1.0 → F_pull이 F_push를 이겨 진입
+- 또는 α=1.0, β=3.0 → 우회 경로 탐색 후 혼잡 완화 후 재방문
+
+---
+
+## 기술 스택
+
+- **Next.js 16** + **TypeScript**
+- **Tailwind CSS v4** (스타일링)
+- **Canvas API** (격자 지도, 경로 시각화, 트럭 애니메이션)
+- **React useReducer** (상태 관리), **requestAnimationFrame** (시뮬레이션)
+
+## 파일 구조
+
+```
+src/app/
+  page.tsx               # 진입점 (Server Component)
+  layout.tsx             # 루트 레이아웃
+  components/
+    GeoApp.tsx           # 메인 Client Component (전체 앱 로직)
+```
